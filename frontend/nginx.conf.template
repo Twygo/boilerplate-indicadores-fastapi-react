@@ -1,0 +1,30 @@
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Tudo que começa com /api/ vai pro backend (FastAPI), com o caminho inteiro.
+    # ${API_UPSTREAM} vem da env do container (ex.: http://meuapp-api:8000).
+    location /api/ {
+        proxy_pass ${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # O X-Hub-Token (e os outros X-Hub-*) passam direto: o nginx repassa os headers do request.
+    }
+
+    # Healthcheck do próprio nginx.
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    # React é uma SPA: qualquer outro caminho cai no index.html.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

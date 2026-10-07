@@ -1,0 +1,22 @@
+# Front de PRODUÇÃO: gera o build do Vite e serve com nginx.
+# O nginx também repassa /api/ pro backend (ver nginx.conf.template).
+# Usado pelo docker-compose.dokploy.yml. Pra rodar local continue usando o Dockerfile normal.
+
+# 1) Build do React
+FROM node:20-slim AS build
+WORKDIR /app
+COPY package.json .
+RUN npm install
+COPY . .
+# VITE_HUB_BAR=1 liga a barra do Twygo Hub. Vem do "args" do compose.
+ARG VITE_HUB_BAR=0
+ENV VITE_HUB_BAR=$VITE_HUB_BAR
+RUN npm run build
+
+# 2) nginx servindo os arquivos prontos
+FROM nginx:1.27-alpine
+# A imagem do nginx troca ${API_UPSTREAM} pelo valor da env ao subir o container.
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=build /app/dist /usr/share/nginx/html
+ENV API_UPSTREAM=http://backend:8000
+EXPOSE 80
