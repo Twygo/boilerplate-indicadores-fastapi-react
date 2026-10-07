@@ -1,0 +1,78 @@
+# Compose de PRODUÇÃO, pra publicar no Dokploy atrás do Twygo Hub.
+# Pra rodar no seu computador continue usando o docker-compose.yml normal.
+#
+# ANTES DE USAR: troque "meuapp" pelo slug do seu app em TODO o arquivo.
+#   sed -i 's/meuapp/SLUG-DO-SEU-APP/g' docker-compose.dokploy.yml
+#
+# Por quê? Os serviços do Dokploy dividem a mesma rede (dokploy-network).
+# Nomes genéricos como "web", "api" ou "frontend" batem com os de outros apps
+# e o tráfego pode cair no container errado. Com o prefixo fica único.
+#
+# Quem fica em qual rede:
+#   meuapp-web -> interna + dokploy-network (é por ela que o Traefik e o Hub chegam)
+#   meuapp-api -> só interna (o web repassa /api/ pra ela)
+#   meuapp-db  -> só interna
+# Nenhum serviço publica porta no host: a entrada é só pelo domínio.
+
+services:
+  meuapp-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: indicadores
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD nas envs do Dokploy}
+      POSTGRES_DB: indicadores
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U indicadores"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - interna
+
+  meuapp-api:
+    build: ./backend
+    restart: unless-stopped
+    # Sem o --reload do Dockerfile (isso é só pra desenvolvimento).
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql://indicadores:${POSTGRES_PASSWORD}@meuapp-db:5432/indicadores
+      # O front e a API ficam no mesmo domínio, então o CORS nem é usado.
+      CORS_ORIGINS: '[]'
+      # Comece com "none" e só troque pra "hub" depois de ativar o app no Hub (ver README).
+      AUTH_MODE: ${AUTH_MODE:-none}
+      HUB_AUDIENCE: ${HUB_AUDIENCE:-meuapp}
+      HUB_ISSUER: ${HUB_ISSUER:-https://hub.apps.twygo.com}
+      HUB_JWKS_URL: ${HUB_JWKS_URL:-https://hub.apps.twygo.com/.well-known/jwks.json}
+    depends_on:
+      meuapp-db:
+        condition: service_healthy
+    networks:
+      - interna
+
+  meuapp-web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        # 1 = mostra a barra do Twygo Hub no topo. Precisa de novo deploy pra mudar.
+        VITE_HUB_BAR: ${VITE_HUB_BAR:-1}
+    restart: unless-stopped
+    environment:
+      # Pra onde o nginx repassa o /api/.
+      API_UPSTREAM: http://meuapp-api:8000
+    depends_on:
+      - meuapp-api
+    networks:
+      - interna
+      - dokploy-network
+
+networks:
+  interna: {}
+  dokploy-network:
+    external: true
+
+volumes:
+  db_data:
