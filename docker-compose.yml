@@ -20,6 +20,8 @@ services:
     environment:
       DATABASE_URL: postgresql://indicadores:indicadores@db:5432/indicadores
       CORS_ORIGINS: '["http://localhost:5173"]'
+      # "none" = sem login (padrão). "hub" = exige o token do Twygo Hub (ver README).
+      AUTH_MODE: ${AUTH_MODE:-none}
     ports:
       - "8000:8000"
     volumes:
@@ -32,6 +34,8 @@ services:
     build: ./frontend
     environment:
       VITE_API_PROXY_TARGET: http://backend:8000
+      # 1 = carrega a barra do Twygo Hub no topo da tela.
+      VITE_HUB_BAR: ${VITE_HUB_BAR:-0}
     ports:
       - "5173:5173"
     volumes:
